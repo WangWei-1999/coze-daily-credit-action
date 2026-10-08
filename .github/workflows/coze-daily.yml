@@ -148,3 +148,48 @@ jobs:
           path: artifacts/storage_state.updated.json
           if-no-files-found: ignore
           retention-days: 3
+          
+  notify-on-failure:
+    needs: daily  # 比如 coze-daily-credit
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Feishu on failure
+        uses: actions/github-script@v7
+        env:
+          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
+          FEISHU_SECRET: ${{ secrets.FEISHU_SECRET }}
+        with:
+          script: |
+            const crypto = require('crypto');
+            const now = Math.floor(Date.now() / 1000);
+            const secret = process.env.FEISHU_SECRET || '';
+            let sign = '';
+            if (secret) {
+              const stringToSign = `${now}\n${secret}`;
+              sign = crypto.createHmac('sha256', stringToSign).digest('base64');
+            }
+
+            const payload = {
+              msg_type: 'text',
+              content: {
+                text: `❌ Coze 每日签到失败\n\n` +
+                      `仓库：${context.repo.owner}/${context.repo.repo}\n` +
+                      `时间：${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}\n` +
+                      `原因：可能是 Cookie 失效或页面结构变化\n\n` +
+                      `请前往查看：https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+              }
+            };
+
+            if (sign) {
+              payload.timestamp = String(now);
+              payload.sign = sign;
+            }
+
+            const res = await fetch(process.env.FEISHU_WEBHOOK, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            console.log('Feishu response:', data);
